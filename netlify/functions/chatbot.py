@@ -27,41 +27,32 @@ def handler(event, context):
         "top_p": 0.6  # 控制采样的多样性
     }
     
-    # 设置请求头，包含 API 密钥
+   
+    # 请求头，包含 API 密钥
     headers = {
-        "Authorization": f"Bearer {API_KEY}",  # 用你的实际 API 密钥替换这里
+        "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json"
     }
-    
-    # 向 SiliconFlow 发送 POST 请求
+
     try:
         response = requests.post(url, json=payload, headers=headers)
         response.raise_for_status()  # 如果请求失败，抛出异常
-        
-        # 解析 API 响应
+
         result = response.json()
         
-        # 返回成功响应，包含 API 生成的消息
+        # 构建 CORS 响应头，允许跨域请求
         return {
             'statusCode': 200,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',  # 允许所有来源
+                'Access-Control-Allow-Methods': 'OPTIONS, POST, GET',  # 允许的 HTTP 方法
+                'Access-Control-Allow-Headers': 'Content-Type, Authorization',  # 允许的请求头
+            },
             'body': json.dumps({'response': result['choices'][0]['message']['content']})
         }
-    
+
     except requests.exceptions.RequestException as e:
-        # 处理请求异常
         return {
             'statusCode': 500,
             'body': json.dumps({'error': str(e)})
         }
-
-# 示例输入（用户的请求内容）
-event = {
-    'body': '你好，帮我做一个推荐系统。'
-}
-
-# 模拟调用后端函数
-context = {}  # 此处 context 为空，因为我们只是模拟调用
-response = handler(event, context)
-
-# 打印响应
-print(response)
