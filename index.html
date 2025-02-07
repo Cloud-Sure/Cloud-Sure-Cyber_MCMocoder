@@ -38,10 +38,14 @@
                     body: JSON.stringify({ message: userInput })
                 });
 
+                // Check if the response is OK (status code 200)
                 if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Backend error:', errorText);  // Log the error response
                     throw new Error('Network response was not ok');
                 }
 
+                // Parse the JSON response from the backend
                 const data = await response.json();
                 console.log('Response from backend:', data);  // Debug: Log backend response
 
@@ -53,7 +57,7 @@
                 chatbox.scrollTop = chatbox.scrollHeight;  // Scroll to the bottom
             } catch (error) {
                 console.error('Error sending message:', error);
-                chatbox.innerHTML += `<div class="message error">There was an error with the request.</div>`;
+                chatbox.innerHTML += `<div class="message error">There was an error with the request: ${error.message}</div>`;
             }
         }
     </script>
