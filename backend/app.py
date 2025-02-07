@@ -1,9 +1,12 @@
 import json
 import requests
 from flask import Flask, request, jsonify
+from flask import render_template
+import os
+API_KEY = os.getenv('API_KEY')
 
 # 这里是你从 SiliconFlow 获取的 API 密钥
-API_KEY = "sk-rhshxzvfrtcfiqqfkqqraeodtytxpmrilcytxehcppdxwsqx"  # 替换为你自己的 API 密钥
+# 替换为你自己的 API 密钥
 
 # 创建 Flask 应用
 app = Flask(__name__)
@@ -57,7 +60,11 @@ def handle_request():
         return jsonify({'error': str(e)}), 500
     except Exception as e:
         return jsonify({'error': '服务器内部错误'}), 500
-
+        
+@app.route('/')
+def index():
+    return render_template('index.html')
+    
 # 运行 Flask 应用
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
