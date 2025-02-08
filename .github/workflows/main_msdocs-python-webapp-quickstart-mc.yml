@@ -35,7 +35,7 @@ jobs:
         app-name: <your-frontend-app-service-name>  # 你的 Azure Static Web Apps 名称
         api-location: 'backend'  # 后端 API 代码所在路径
         app-location: 'frontend'  # 前端代码所在路径
-        output-location: 'frontend/build'  # 前端构建的输出目录
+        output-location: 'frontend/build'  # 前端构建的输出目录，确保指向正确的 build 目录
 
     # 后端构建步骤
     - name: Set up Python
@@ -45,7 +45,7 @@ jobs:
 
     - name: Install backend dependencies
       run: |
-        pip install -r backend/requirements.txt  # 安装后端依赖
+        pip install --no-cache-dir -r backend/requirements.txt  # 安装后端依赖
 
     - name: Deploy backend to Azure App Service
       uses: Azure/webapps-deploy@v2
