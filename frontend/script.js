@@ -28,7 +28,7 @@ function formatMessage(text) {
             while (currentIndex < lines.length) {
                 let line = lines[currentIndex].trim();
                 
-                // 如果是数字开头（如 "1.")
+                // 如果是数字开头（如 "1."）
                 if (/^\d+\./.test(line)) {
                     result += `<p class="section-title">${line}</p>`;
                 }
@@ -91,23 +91,20 @@ function sendMessage() {
         loadingElement.style.display = 'block';
     }
 
-    const apiKey = '你的API Key';
-    const endpoint = 'https://api.deepseek.com/chat/completions';
+    // API Key 和后端接口 URL
+    const apiKey = 'sk-rhshxzvfrtcfiqqfkqqraeodtytxpmrilcytxehcppdxwsqx';
+    const backendUrl = 'https://msdocs-python-webapp-quickstart-mc-cfbudtbbe0bua9ee.eastasia-01.azurewebsites.net/api/chat';  // 你的后端 API 地址
 
     const payload = {
-        model: "deepseek-chat",
-        messages: [
-            { role: "system", content: "You are a helpful assistant" },
-            { role: "user", content: message }
-        ],
-        stream: false
+        message: message  // 发送给后端的用户消息
     };
 
-    fetch(endpoint, {
+    // 调用后端 API
+    fetch(backendUrl, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
+            'Authorization': `Bearer ${apiKey}`  // 如果你的后端需要 API Key
         },
         body: JSON.stringify(payload)
     })
@@ -118,8 +115,9 @@ function sendMessage() {
             loadingElement.style.display = 'none';
         }
 
-        if (data.choices && data.choices.length > 0) {
-            displayMessage('bot', data.choices[0].message.content);
+        if (data && data.response) {
+            // 显示机器人返回的消息
+            displayMessage('bot', data.response);
         } else {
             displayMessage('bot', '出错了，请稍后再试。');
         }
