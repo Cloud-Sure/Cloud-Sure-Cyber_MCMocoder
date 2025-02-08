@@ -92,9 +92,9 @@ function sendMessage() {
     }
 
     // API Key 和后端接口 URL
-    const apiKey = 'sk-rhshxzvfrtcfiqqfkqqraeodtytxpmrilcytxehcppdxwsqx';
-    const backendUrl = 'https://msdocs-python-webapp-quickstart-mc-cfbudtbbe0bua9ee.eastasia-01.azurewebsites.net/api/chat';  // 你的后端 API 地址
-
+    // const apiKey = 'sk-rhshxzvfrtcfiqqfkqqraeodtytxpmrilcytxehcppdxwsqx';
+    const backendUrl = 'https://msdocs-python-webapp-quickstart-mc-cfbudtbbe0bua9ee.eastasia-01.azurewebsites.net';  // 你的后端 API 地址
+               //         https://msdocs-python-webapp-quickstart-mc-cfbudtbbe0bua9ee.eastasia-01.azurewebsites.net/
     const payload = {
         message: message  // 发送给后端的用户消息
     };
