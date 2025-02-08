@@ -13,6 +13,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v2
 
+    # 添加 Azure 登录步骤
+    - name: 'Login to Azure'
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}  # 从 GitHub Secrets 中获取凭据
+
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
