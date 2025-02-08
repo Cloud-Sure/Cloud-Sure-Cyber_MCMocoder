@@ -7,13 +7,12 @@ on:
   workflow_dispatch:  # 允许手动触发工作流
 
 jobs:
-  build:
+  frontend-build:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
       uses: actions/checkout@v2
 
-    # 前端构建步骤
     - name: Install Node.js
       uses: actions/setup-node@v2
       with:
@@ -37,7 +36,12 @@ jobs:
         app-location: 'frontend'  # 前端代码所在路径
         output-location: 'frontend/build'  # 前端构建的输出目录，确保指向正确的 build 目录
 
-    # 后端构建步骤
+  backend-build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
