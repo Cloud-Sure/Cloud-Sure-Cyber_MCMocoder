@@ -26,6 +26,12 @@ class Config:
     STOP_WORDS = {'的', '了', '是', '在', '和', '有', '我', '你', '他', '她', '它'}
     # file_path = 'D:\MemoTrace\data\聊天记录\亲友群\merge.csv'
 
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (datetime, pd.Timestamp)):
+            return obj.isoformat()
+        return super().default(obj)
+
 # ======================
 # 工具函数
 # ======================
@@ -357,10 +363,13 @@ def process_chat_data(input_path: str) -> None:
 
             training_data.append({
                 'text': context_text,
-                'messages': block['messages'],
+                'messages': [{
+                    **msg,
+                    'time': msg['time'].isoformat()  # 转换时间格式
+                } for msg in block['messages']],
                 'metadata': {
                     'time_span': {
-                        'start': block['start_time'].isoformat(),
+                        'start': block['start_time'].isoformat(),  # 转换为ISO格式字符串
                         'end': block['end_time'].isoformat()
                     },
                     'message_count': len(block['messages']),
@@ -380,7 +389,7 @@ def process_chat_data(input_path: str) -> None:
         # 7. 保存结果
         with open(Config.OUTPUT_FILE, 'w', encoding='utf-8') as f:
             for item in training_data:
-                f.write(json.dumps(item, ensure_ascii=False) + '\n')
+                f.write(json.dumps(item, ensure_ascii=False, cls=DateTimeEncoder) + '\n')
 
         # 保存情感词汇
         with open('sentiment_analysis_result.json', 'w', encoding='utf-8') as f:
