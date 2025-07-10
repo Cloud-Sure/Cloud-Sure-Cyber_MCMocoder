@@ -24,7 +24,7 @@ class Config:
     TOP_KEYWORDS_COUNT = 20
     SENTIMENT_WORD_COUNT = 15
     STOP_WORDS = {'的', '了', '是', '在', '和', '有', '我', '你', '他', '她', '它'}
-
+    # file_path = 'D:\MemoTrace\data\聊天记录\亲友群\merge.csv'
 
 # ======================
 # 工具函数
@@ -244,7 +244,7 @@ def extract_keyphrases(texts: List[str]) -> List[str]:
     # TF-IDF关键词
     vectorizer = TfidfVectorizer(
         tokenizer=jieba.cut,
-        stop_words=list(Config.STOP_WORDS)
+        stop_words=list(Config.STOP_WORDS))
     tfidf_matrix = vectorizer.fit_transform(texts)
     feature_names = vectorizer.get_feature_names_out()
 
@@ -458,11 +458,13 @@ if __name__ == "__main__":
     import sys
 
     # 检查输入文件
+    #TODO
     if len(sys.argv) < 2:
-        print("请指定输入文件路径: python preprocess.py <chat_data.csv>")
-        sys.exit(1)
+        input_file = "D:\MemoTrace\data\聊天记录\亲友群\merge.csv"
+    else:
+        input_file = sys.argv[1]
 
-    input_file = sys.argv[1]
+
 
     # 检查依赖
     try:
