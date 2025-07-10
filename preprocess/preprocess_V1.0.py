@@ -99,8 +99,8 @@ def extract_features(text):
         features['punctuation'] = "省略号"
     
     # 情感分析（简化版）
-    positive_words = ['好', '开心', '喜欢', '哈哈', '不错', '谢谢']
-    negative_words = ['错', '生气', '烦', '讨厌', '问题', '难']
+    positive_words = ['好', '开心', '喜欢', '哈哈', '不错', '谢谢', '草饲你', '乐', '笑死了']
+    negative_words = ['错', '生气', '烦', '讨厌', '问题', '难', '破防', '崩溃']
     
     if any(word in text for word in positive_words):
         features['emotion'] = "positive"
@@ -241,7 +241,7 @@ def process_chat_data(file_path):
 # ======================
 if __name__ == "__main__":
     # TODO
-    input_file = "your_chat_history.csv"  
+    input_file = "D:\MemoTrace\data\聊天记录\亲友群\merge.csv"
     processed_data = process_chat_data(input_file)
     
     # 打印示例数据

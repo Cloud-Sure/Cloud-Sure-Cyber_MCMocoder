@@ -35,8 +35,8 @@ def merge_csv_files(input_folder, output_file):
 
 if __name__ == "__main__":
     # 设置输入文件夹和输出文件路径
-    input_folder = "your_chat_history_path"
-    output_file = "output_path"
+    input_folder = "D:\MemoTrace\data\聊天记录\亲友群"
+    output_file = "D:\MemoTrace\data\聊天记录\亲友群\merge.csv"
     
     # 调用合并函数
     merge_csv_files(input_folder, output_file)
