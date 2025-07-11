@@ -1,31 +1,29 @@
 import pandas as pd
 import re
 import json
-import numpy as np
-from datetime import datetime, timedelta
 import logging
+from datetime import datetime, timedelta
 from collections import defaultdict
-import itertools
 
 
 # ======================
 # 配置参数
 # ======================
 class Config:
-    # 目标用户信息
     TARGET_USER_ID = 'wxid_z2d3h3x279gm22'  # MCMocoder的Sender ID
     TARGET_USER_NAME = 'MCMocoder'
 
-    # 对话处理参数
-    CONTEXT_WINDOW = timedelta(minutes=10)  # 10分钟内的消息视为同一对话上下文
-    MIN_CONVERSATION_TURNS = 2  # 最小对话轮数 (1对user-assistant)
-    MAX_CONVERSATION_TURNS = 6  # 最大对话轮数
+    # 对话处理
+    CONTEXT_WINDOW = timedelta(minutes=15)
+    MIN_CONVERSATION_TURNS = 2
+    MAX_CONVERSATION_TURNS = 6
 
-    # 上下文关联阈值
-    SEMANTIC_SIMILARITY_THRESHOLD = 0.6  # 语义相似度阈值
+    # 清洗设置
+    MAX_MESSAGE_LENGTH = 500
+    MIN_MESSAGE_LENGTH = 2
 
-    # 输出设置
-    OUTPUT_FILE = 'mcmocoder_training_data.jsonl'
+    # 输出
+    OUTPUT_FILE = 'complete_training_data.jsonl'
 
 
 # ======================
@@ -33,129 +31,97 @@ class Config:
 # ======================
 logger = logging.getLogger('conversation_processor')
 logger.setLevel(logging.INFO)
-ch = logging.StreamHandler()
-ch.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+ch = logging.StreamHandler()
 ch.setFormatter(formatter)
 logger.addHandler(ch)
 
-
-# ======================
-# 语义分析工具
-# ======================
-class SemanticAnalyzer:
-    def __init__(self):
-        try:
-            from sentence_transformers import SentenceTransformer
-            self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
-            self.initialized = True
-        except ImportError:
-            self.initialized = False
-            logger.warning("未安装sentence-transformers，将使用基础语义分析")
-
-    def calculate_similarity(self, text1, text2):
-        if not self.initialized or not text1 or not text2:
-            return 0.5  # 默认相似度
-
-        # 计算文本嵌入
-        embeddings = self.model.encode([text1, text2])
-
-        # 计算余弦相似度
-        from sklearn.metrics.pairwise import cosine_similarity
-        return cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
-
-    def is_context_related(self, prev_content, current_content):
-        """检查两条消息是否上下文相关"""
-        if not prev_content or not current_content:
-            return False
-
-        # 简单规则：检查关键词重叠
-        common_words = set(prev_content.split()) & set(current_content.split())
-        if len(common_words) >= 2:
-            return True
-
-        # 使用语义模型检查
-        if self.initialized:
-            similarity = self.calculate_similarity(prev_content, current_content)
-            return similarity > Config.SEMANTIC_SIMILARITY_THRESHOLD
-
-        return False
+fh = logging.FileHandler('conversation_processing.log', encoding='utf-8')
+fh.setFormatter(formatter)
+logger.addHandler(fh)
 
 
 # ======================
-# 数据处理函数
+# 强化消息清洗函数
 # ======================
-def load_and_prepare_data(file_path):
-    """加载并准备群聊数据"""
-    try:
-        logger.info(f"开始加载数据文件: {file_path}")
-        df = pd.read_csv(file_path)
-
-        # 转换时间格式
-        df['CreateTime'] = pd.to_datetime(df['StrTime'])
-        df.sort_values('CreateTime', inplace=True)
-
-        # 添加用户类型列
-        df['user_type'] = df['Sender'].apply(
-            lambda x: 'assistant' if x == Config.TARGET_USER_ID else 'user'
-        )
-
-        logger.info(f"成功加载数据: {len(df)} 条消息")
-        return df
-    except Exception as e:
-        logger.error(f"数据加载失败: {str(e)}")
-        raise
-
-
-def is_valid_message(content, msg_type, sub_type):
-    """检查消息是否有效"""
-    if pd.isna(content):
-        return False
-    if not isinstance(content, str):
-        return False
-    if msg_type in {47, 49} or sub_type == 57:
-        return False
-    if content.startswith('<msg>'):
-        return False
-    return True
-
-
 def clean_message_content(content):
-    """清洗消息内容"""
+    """深度清洗消息内容"""
+    if not content or not isinstance(content, str):
+        return None
+
+    # 1. 完全过滤XML消息
+    if content.strip().startswith('<?xml') or content.strip().startswith('<msg>'):
+        return "[图片/表情]"
+
+    # 2. 移除XML标签和属性
+    content = re.sub(r'<[^>]+>', '', content)
+
+    # 3. 移除技术性内容
+    content = re.sub(r'\b[a-f0-9]{32}\b', '', content)  # MD5
+    content = re.sub(r'\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b', '', content)  # UUID
+
+    # 4. 移除特殊符号和表情代码
+    content = re.sub(r'&\w+;', '', content)  # HTML实体
+
+    # 5. 标准化文本
     content = re.sub(r'@\S+\s?', '', content)  # 移除@提及
     content = re.sub(r'http[s]?://\S+', '', content)  # 移除URL
     content = re.sub(r'\[.*?\]', '', content)  # 移除方括号内容
-    content = content.replace('（）', '').replace('()', '')  # 移除括号
-    content = re.sub(r'\s+', ' ', content).strip()  # 移除多余空格
-    return content
+    content = re.sub(r'\s+', ' ', content).strip()  # 标准化空格
+
+    # 6. 过滤无效内容
+    if len(content) < Config.MIN_MESSAGE_LENGTH:
+        return None
+    if len(content) > Config.MAX_MESSAGE_LENGTH:
+        return content[:Config.MAX_MESSAGE_LENGTH] + "..."
+
+    return content if content else None
+
+
+def is_valid_message(row):
+    """强化消息有效性检查"""
+    content = row['StrContent']
+    if pd.isna(content) or not isinstance(content, str):
+        return False
+
+    # 过滤特殊消息类型
+    if row['Type'] in {47, 49} or row['SubType'] == 57:
+        return False
+
+    # 过滤空消息和过短消息
+    if len(content.strip()) < Config.MIN_MESSAGE_LENGTH:
+        return False
+
+    return True
 
 
 # ======================
-# 智能对话重建算法
+# 对话重建与整合
 # ======================
-def build_contextual_conversations(df, semantic_analyzer):
-    """
-    构建上下文连贯的对话
-    返回: [{
-        "messages": [
-            {"time": datetime, "sender": str, "role": str, "content": str},
-            ...
-        ]
-    }]
-    """
-    logger.info("开始构建上下文连贯的对话...")
+def build_complete_conversations(df):
+    """构建包含所有群友发言的完整对话"""
+    logger.info("开始构建完整对话结构...")
 
     # 预处理有效消息
     valid_messages = []
     for _, row in df.iterrows():
-        if is_valid_message(row['StrContent'], row['Type'], row['SubType']):
+        if is_valid_message(row):
             content = clean_message_content(row['StrContent'])
             if content:
+                # 确定角色：目标用户为assistant，其他为user
+                role = 'assistant' if row['Sender'] == Config.TARGET_USER_ID else 'user'
+
+                # 添加昵称前缀以区分不同用户
+                nickname = row.get('NickName', '未知用户') or row.get('Remark', '未知用户') or '未知用户'
+                prefixed_content = f"{nickname}: {content}" if role == 'user' else content
+
                 valid_messages.append({
                     "time": row['CreateTime'],
                     "sender": row['Sender'],
-                    "role": row['user_type'],
-                    "content": content
+                    "nickname": nickname,
+                    "role": role,
+                    "content": prefixed_content
                 })
 
     if not valid_messages:
@@ -170,228 +136,177 @@ def build_contextual_conversations(df, semantic_analyzer):
     # 构建对话块
     conversations = []
     current_conv = []
-    last_assistant_time = None
+    last_time = None
 
-    for i, msg in enumerate(valid_messages):
+    for msg in valid_messages:
         # 第一条消息
         if not current_conv:
             current_conv.append(msg)
-            if msg['role'] == 'assistant':
-                last_assistant_time = msg['time']
+            last_time = msg['time']
             continue
 
-        prev_msg = current_conv[-1]
-        time_diff = msg['time'] - prev_msg['time']
+        time_diff = msg['time'] - last_time
 
         # 检查是否开始新对话
-        start_new_conversation = False
-
-        # 规则1: 超过时间窗口
         if time_diff > Config.CONTEXT_WINDOW:
-            start_new_conversation = True
-
-        # 规则2: 目标用户回复后长时间没有回应
-        elif last_assistant_time and (msg['time'] - last_assistant_time) > timedelta(minutes=5):
-            start_new_conversation = True
-
-        # 规则3: 连续两条assistant消息
-        elif msg['role'] == 'assistant' and prev_msg['role'] == 'assistant':
-            start_new_conversation = True
-
-        # 规则4: 上下文不相关
-        elif not semantic_analyzer.is_context_related(prev_msg['content'], msg['content']):
-            start_new_conversation = True
-
-        # 开始新对话
-        if start_new_conversation:
-            # 保存当前对话（如果有效）
-            if is_valid_conversation(current_conv):
-                conversations.append({
-                    "messages": current_conv.copy()
-                })
-
-            # 开始新对话
+            if current_conv:
+                # 确保对话以user开始，以assistant结束
+                if current_conv[0]['role'] == 'user' and any(m['role'] == 'assistant' for m in current_conv):
+                    conversations.append({
+                        "messages": current_conv.copy(),
+                        "start_time": current_conv[0]['time'],
+                        "end_time": current_conv[-1]['time']
+                    })
             current_conv = [msg]
-            last_assistant_time = msg['time'] if msg['role'] == 'assistant' else None
         else:
-            # 添加到当前对话
             current_conv.append(msg)
-            if msg['role'] == 'assistant':
-                last_assistant_time = msg['time']
+
+        last_time = msg['time']
 
     # 添加最后一个对话
-    if current_conv and is_valid_conversation(current_conv):
+    if current_conv and current_conv[0]['role'] == 'user' and any(m['role'] == 'assistant' for m in current_conv):
         conversations.append({
-            "messages": current_conv
+            "messages": current_conv,
+            "start_time": current_conv[0]['time'],
+            "end_time": current_conv[-1]['time']
         })
 
     logger.info(f"构建完成! 共 {len(conversations)} 个对话")
     return conversations
 
 
-def is_valid_conversation(conversation):
-    """检查对话是否有效"""
-    messages = conversation["messages"]
-    if len(messages) < Config.MIN_CONVERSATION_TURNS * 2:
-        return False
-
-    # 检查是否包含目标用户
-    has_assistant = any(msg['role'] == 'assistant' for msg in messages)
-    if not has_assistant:
-        return False
-
-    # 检查是否有至少一对user-assistant交互
-    user_assistant_pairs = 0
-    for i in range(1, len(messages)):
-        if messages[i - 1]['role'] == 'user' and messages[i]['role'] == 'assistant':
-            user_assistant_pairs += 1
-
-    return user_assistant_pairs >= Config.MIN_CONVERSATION_TURNS
-
-
 # ======================
 # 对话精炼与格式转换
 # ======================
 def refine_conversation(conversation):
-    """
-    精炼对话结构以满足格式要求:
-    1. 添加system消息
-    2. 确保user和assistant交替
-    3. 确保以assistant结束
-    """
+    """精炼对话结构以满足训练格式要求"""
     messages = conversation['messages']
 
-    # 1. 创建上下文相关的system提示
-    # 分析对话主题
-    topics = detect_conversation_topics(messages)
-    system_prompt = f"你正在扮演{Config.TARGET_USER_NAME}在群聊中的角色。当前对话主题：{', '.join(topics[:3])}。请用自然、真实的语气回复其他群成员。"
-
-    system_msg = {
-        "role": "system",
-        "content": system_prompt
-    }
+    # 1. 创建系统提示
+    system_prompt = f"你正在扮演{Config.TARGET_USER_NAME}在群聊中的角色。请用自然、真实的语气回复其他群成员。"
+    refined_messages = [{"role": "system", "content": system_prompt}]
 
     # 2. 重组消息序列
-    refined_messages = [system_msg]
-
-    # 收集连续的用户消息
-    current_user_msgs = []
+    current_user_content = []
 
     for msg in messages:
         if msg['role'] == 'user':
-            # 收集连续的用户消息
-            current_user_msgs.append(msg['content'])
-        elif msg['role'] == 'assistant' and current_user_msgs:
-            # 合并连续的用户消息
-            user_content = "\n".join(current_user_msgs)
-            refined_messages.append({
-                "role": "user",
-                "content": user_content
-            })
-            refined_messages.append({
-                "role": "assistant",
-                "content": msg['content']
-            })
-            current_user_msgs = []
+            # 收集所有user消息
+            current_user_content.append(msg['content'])
+        elif msg['role'] == 'assistant' and current_user_content:
+            # 合并所有user消息为一条
+            user_content = "\n".join(current_user_content)
+            refined_messages.append({"role": "user", "content": user_content})
 
-    # 3. 确保以assistant结束
-    if refined_messages[-1]['role'] != 'assistant':
-        # 寻找最后一个有效的assistant回复
-        for i in range(len(refined_messages) - 1, -1, -1):
-            if refined_messages[i]['role'] == 'assistant':
-                refined_messages = refined_messages[:i + 1]
-                break
-        else:
-            return None  # 没有有效的assistant消息
+            # 添加assistant回复
+            refined_messages.append({"role": "assistant", "content": msg['content']})
 
-    # 4. 确保有足够的对话轮次
+            current_user_content = []
+
+    # 3. 确保至少有一对有效对话
+    if len(refined_messages) < 3:  # system + user + assistant
+        return None
+
+    # 4. 确保对话质量
+    if not is_high_quality_conversation(refined_messages):
+        return None
+
+    # 5. 构建metadata
     assistant_count = sum(1 for msg in refined_messages if msg['role'] == 'assistant')
-    if assistant_count < Config.MIN_CONVERSATION_TURNS:
-        return None
 
-    # 5. 确保对话连贯性
-    if not is_conversation_coherent(refined_messages):
-        return None
+    # 提取对话中的用户昵称
+    participants = set()
+    for msg in conversation['messages']:
+        if msg['role'] == 'user':
+            participants.add(msg['nickname'])
 
     return {
-        "messages": refined_messages
+        "messages": refined_messages,
+        "metadata": {
+            "original_start": conversation['start_time'].isoformat(),
+            "original_end": conversation['end_time'].isoformat(),
+            "turn_count": assistant_count,
+            "participants": list(participants)
+        }
     }
 
 
-def detect_conversation_topics(messages):
-    """检测对话主题"""
-    # 提取所有消息内容
-    contents = [msg['content'] for msg in messages if msg['content']]
+def is_high_quality_conversation(messages):
+    """检查对话质量"""
+    # 1. 跳过system消息
+    content_messages = [msg for msg in messages if msg['role'] in ('user', 'assistant')]
 
-    # 简单关键词提取
-    keywords = []
-    for content in contents:
-        words = content.split()
-        if len(words) > 3:  # 忽略过短的消息
-            # 提取名词和动词
-            keywords.extend([word for word in words if len(word) > 1 and not word.isdigit()])
+    # 2. 检查有效消息数量
+    if len(content_messages) < 2:  # 至少一对user-assistant
+        return False
 
-    # 统计高频词
-    from collections import Counter
-    word_counts = Counter(keywords)
-    return [word for word, count in word_counts.most_common(5)]
+    # 3. 检查媒体消息比例
+    media_count = sum(1 for msg in content_messages if msg['content'] == "[图片/表情]")
+    if media_count / len(content_messages) > 0.3:  # 超过30%媒体消息
+        return False
 
+    # 4. 内容多样性检查
+    unique_words = set()
+    for msg in content_messages:
+        if msg['content'] != "[图片/表情]":
+            words = re.findall(r'[\w\u4e00-\u9fff]{2,}', msg['content'])
+            unique_words.update(words)
 
-def is_conversation_coherent(messages):
-    """检查对话是否连贯"""
-    # 跳过system消息
-    conversation_content = " ".join(msg['content'] for msg in messages[1:])
+    if len(unique_words) < 10:  # 至少10个不同的词
+        return False
 
-    # 简单规则：至少有两个不同的主题词
-    words = set(conversation_content.split())
-    return len(words) >= 5  # 至少5个不同的词
+    return True
 
 
 # ======================
 # 主处理流程
 # ======================
 def process_to_jsonl(input_file, output_file):
-    """完整的处理流程"""
     try:
-        # 初始化语义分析器
-        semantic_analyzer = SemanticAnalyzer()
+        logger.info(f"开始处理文件: {input_file}")
 
         # 1. 加载数据
-        df = load_and_prepare_data(input_file)
+        logger.info("加载数据...")
+        df = pd.read_csv(input_file)
+        df['CreateTime'] = pd.to_datetime(df['StrTime'])
+        df.sort_values('CreateTime', inplace=True)
+        logger.info(f"加载完成: {len(df)} 条消息")
 
-        # 2. 重建对话
-        conversations = build_contextual_conversations(df, semantic_analyzer)
+        # 2. 构建完整对话
+        logger.info("构建对话结构...")
+        conversations = build_complete_conversations(df)
 
         if not conversations:
-            logger.error("没有重建出任何对话，请检查数据格式")
+            logger.error("没有构建出任何对话")
             return 0
 
-        logger.info(f"初步重建对话: {len(conversations)} 个")
+        logger.info(f"构建完成: {len(conversations)} 个对话")
 
         # 3. 精炼对话并保存
-        valid_count = 0
+        logger.info("精炼对话...")
+        high_quality_count = 0
         with open(output_file, 'w', encoding='utf-8') as f:
             for conv in conversations:
                 refined = refine_conversation(conv)
                 if refined:
-                    # 检查对话轮次
-                    turns = sum(1 for msg in refined['messages'] if msg['role'] == 'assistant')
-                    if turns >= Config.MIN_CONVERSATION_TURNS:
-                        f.write(json.dumps(refined, ensure_ascii=False) + '\n')
-                        valid_count += 1
+                    json_line = json.dumps(refined, ensure_ascii=False)
+                    f.write(json_line + '\n')
+                    high_quality_count += 1
 
-                        # 记录前3个示例
-                        if valid_count <= 3:
-                            logger.info(f"示例对话 {valid_count} (轮次: {turns}):")
-                            for msg in refined['messages']:
-                                role = msg['role']
-                                content = msg['content'][:50] + ('...' if len(msg['content']) > 50 else '')
-                                logger.info(f"  {role}: {content}")
+                    # 记录前3个示例
+                    if high_quality_count <= 3:
+                        logger.info(f"高质量对话示例 {high_quality_count}:")
+                        for msg in refined['messages']:
+                            content = msg['content']
+                            if len(content) > 100:
+                                content = content[:100] + "..."
+                            logger.info(f"  {msg['role']}: {content}")
 
-        logger.info(f"处理完成! 生成 {valid_count}/{len(conversations)} 个有效对话")
-        return valid_count
+        logger.info(f"处理完成! 生成 {high_quality_count} 个高质量对话")
+        return high_quality_count
+
     except Exception as e:
-        logger.error(f"处理失败: {str(e)}")
+        logger.error(f"处理失败: {str(e)}", exc_info=True)
         return 0
 
 
@@ -400,21 +315,29 @@ def process_to_jsonl(input_file, output_file):
 # ======================
 if __name__ == "__main__":
     import sys
+    import time
+
+    start_time = time.time()
 
     if len(sys.argv) < 2:
         input_file = "D:\MemoTrace\data\聊天记录\亲友群\merge.csv"
     else:
         input_file = sys.argv[1]
-
-
     output_file = Config.OUTPUT_FILE
 
-    logger.info(f"开始处理文件: {input_file}")
-    result = process_to_jsonl(input_file, output_file)
+    try:
+        result = process_to_jsonl(input_file, output_file)
 
-    if result > 0:
-        logger.info(f"成功生成 {result} 个对话，已保存到 {output_file}")
-        sys.exit(0)
-    else:
-        logger.error("未生成有效对话")
+        if result > 0:
+            logger.info(f"成功生成 {result} 个高质量对话，已保存到 {output_file}")
+            logger.info(f"总耗时: {time.time() - start_time:.2f}秒")
+            sys.exit(0)
+        else:
+            logger.error("未生成有效对话")
+            sys.exit(1)
+    except KeyboardInterrupt:
+        logger.error("用户中断处理")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"程序异常终止: {str(e)}", exc_info=True)
         sys.exit(1)
