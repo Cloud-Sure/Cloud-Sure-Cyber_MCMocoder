@@ -424,15 +424,15 @@ def generate_analysis_report(data: List[Dict]) -> None:
         # 情感分数分布
         plt.subplot(1, 2, 1)
         sns.histplot(sentiment_scores, bins=20, kde=True)
-        plt.title('情感分数分布')
-        plt.xlabel('情感分数 (0=消极, 1=积极)')
+        plt.title('Distribution of emotional scores')
+        plt.xlabel('Emotional score (0= negative, 1= positive)')
 
         # 消息长度分布
         plt.subplot(1, 2, 2)
         lengths = [d['metadata']['length'] for d in data]
         sns.histplot(lengths, bins=20, kde=True)
-        plt.title('消息长度分布')
-        plt.xlabel('字符数')
+        plt.title('Message length distribution')
+        plt.xlabel('number of character')
 
         plt.tight_layout()
         plt.savefig('data_analysis.png')
