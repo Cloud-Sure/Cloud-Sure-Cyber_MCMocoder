@@ -9,6 +9,7 @@ import hashlib
 from collections import defaultdict
 import os
 
+# pip install --pre --upgrade ipex-llm[xpu_2.6] --extra-index-url https://download.pytorch.org/whl/xpu
 # 设置使用hf-mirror.com镜像站
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
