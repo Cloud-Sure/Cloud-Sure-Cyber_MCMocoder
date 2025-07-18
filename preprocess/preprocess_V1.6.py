@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import os
 import hashlib
 from collections import defaultdict
+import os
 
 # 设置使用hf-mirror.com镜像站
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
@@ -27,13 +28,14 @@ class Config:
     MIN_TURNS = 1  # 最小对话轮次 (user-assistant对)
 
     # 清洗设置
-    MAX_MSG_LENGTH = 200
+    MAX_MSG_LENGTH = 100
     MIN_MSG_LENGTH = 2
 
     # 语义模型设置
     SEMANTIC_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
     SEMANTIC_THRESHOLD = 0.4  # 语义相似度阈值
     MIN_COHERENCE_SCORE = 0.5  # 最小连贯性得分
+    MIN_RELEVANCE_SCORE = 0.5  # 最小相关句子得分
 
     # 缓存设置
     CACHE_DIR = "model_cache"
@@ -167,6 +169,45 @@ class SemanticAnalyzer:
         similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
         return similarity >= Config.SEMANTIC_THRESHOLD
 
+    def filter_relevant_sentences(self, user_content, assistant_content):
+        """筛选与助理回复相关的用户消息句子"""
+        if not self.initialized:
+            return user_content  # 如果模型未初始化，返回原始内容
+
+        # 分割用户消息为句子
+        sentences = [s.strip() for s in re.split(r'[\n。！？!?]', user_content) if s.strip()]
+        if len(sentences) <= 1:
+            return user_content  # 如果只有一句话，直接返回
+
+        # 添加助理回复作为参考
+        all_texts = sentences + [assistant_content]
+
+        # 编码所有文本
+        embeddings = self.encode(all_texts)
+        if embeddings is None:
+            return user_content
+
+        # 计算每个句子与助理回复的相似度
+        assistant_embedding = embeddings[-1]
+        similarities = []
+        for i, sent in enumerate(sentences):
+            sim = cosine_similarity([embeddings[i]], [assistant_embedding])[0][0]
+            similarities.append(sim)
+
+        # 筛选相关句子
+        relevant_sentences = []
+        for i, sent in enumerate(sentences):
+            if similarities[i] >= Config.MIN_RELEVANCE_SCORE:
+                relevant_sentences.append(sent)
+
+        # 如果没有找到相关句子，返回相似度最高的句子
+        if not relevant_sentences:
+            max_idx = np.argmax(similarities)
+            relevant_sentences = [sentences[max_idx]]
+
+        # 返回筛选后的内容
+        return "\n".join(relevant_sentences)
+
 
 # ======================
 # 对话构建器 (增强版)
@@ -205,6 +246,20 @@ class EnhancedConversationBuilder:
 
         # 合并用户消息
         user_content = "\n".join(self.user_msg_buffer)
+
+        # 筛选与助理回复相关的用户消息句子
+        if self.semantic_analyzer.initialized:
+            filtered_user_content = self.semantic_analyzer.filter_relevant_sentences(
+                user_content, content
+            )
+
+            # 记录筛选结果
+            if filtered_user_content != user_content:
+                logger.debug(f"用户消息已筛选: 从 {len(user_content)} 字符减少到 {len(filtered_user_content)} 字符")
+                logger.debug(f"原始用户消息: {user_content}")
+                logger.debug(f"筛选后用户消息: {filtered_user_content}")
+
+            user_content = filtered_user_content
 
         # 检查消息相关性
         if not self.semantic_analyzer.check_pair_relevance(user_content, content):
@@ -311,13 +366,11 @@ def process_csv_to_jsonl(input_csv, output_jsonl):
         if conv := builder.build():
             valid_conversations.append(conv)
 
-        # 3. 写入JSONL - 转换为OpenAI微调格式
+        # 3. 写入JSONL - 只保存messages部分
         logger.info(f"写入JSONL文件: {output_jsonl}")
         with open(safe_path(output_jsonl), 'w', encoding='utf-8') as f:
             for conv in valid_conversations:
-                # 将对话包装成{"messages": [...]}格式
-                openai_format = {"messages": conv}
-                f.write(json.dumps(openai_format, ensure_ascii=False) + '\n')
+                f.write(json.dumps(conv, ensure_ascii=False) + '\n')
 
         logger.info(f"处理完成! 生成 {len(valid_conversations)} 个高质量对话")
 
@@ -332,8 +385,8 @@ def process_csv_to_jsonl(input_csv, output_jsonl):
 # 执行入口
 # ======================
 if __name__ == "__main__":
-    input_file = r"D:\MemoTrace\data\聊天记录\亲友群\merge.csv"
-    output_file = r"D:\GitHub\Cloud-Sure-Cyber_MCMocoder\jsonl\high_quality_output.jsonl"
+    input_file = r"D:\GitHub\Cloud-Sure-Cyber_MCMocoder\Data\test.csv"
+    output_file = r"D:\GitHub\Cloud-Sure-Cyber_MCMocoder\jsonl\high_quality_output_1.6.jsonl"
 
     # 确保输出目录存在
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
@@ -341,6 +394,6 @@ if __name__ == "__main__":
 
     if process_csv_to_jsonl(input_file, output_file):
         logger.info("处理成功完成!")
-        print(f"高质量对话已保存到: {output_file}")
+        print(f"新对话已保存到: {output_file}")
     else:
         logger.error("处理过程中出现错误")
